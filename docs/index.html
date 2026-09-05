@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>壁球影片分析 Squash Video Analysis</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --panel-border: #262f45;
+    --text: #e7ebf5;
+    --muted: #8b93a7;
+    --accent: #5b8cff;
+    --forehand: #5b8cff;
+    --backhand: #ff8a5b;
+    --serve: #4fd1a5;
+    --unknown: #6b7284;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+    padding: 32px 20px 60px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 28px; line-height: 1.6; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .drop {
+    border: 2px dashed var(--panel-border);
+    border-radius: 10px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .drop:hover, .drop.drag { border-color: var(--accent); background: #131a2a; }
+  .drop p { margin: 6px 0; color: var(--muted); font-size: 13px; }
+  .drop strong { color: var(--text); font-size: 15px; }
+  input[type=file] { display: none; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 14px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 18px; }
+  .error { color: #ff6b6b; }
+  .progress-wrap {
+    height: 6px;
+    border-radius: 999px;
+    background: #0b0f1a;
+    overflow: hidden;
+    margin-top: 10px;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width .15s ease;
+  }
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-tile {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .stat-tile .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .stat-tile .value { font-size: 26px; font-weight: 600; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  canvas { max-width: 100%; }
+  h2 { font-size: 15px; margin: 0 0 14px; color: var(--text); }
+  .hidden { display: none; }
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--panel-border);
+    margin-top: 16px;
+    padding-top: 12px;
+    line-height: 1.6;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--serve);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 2px 9px;
+    margin-bottom: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="badge">全部在瀏覽器端執行 &middot; 無伺服器 &middot; 影片不會上傳</span>
+  <h1>壁球影片分析 Squash Video Analysis</h1>
+  <p class="sub">上傳一段壁球比賽影片,自動偵測擊球時機並分類為正手 / 反手 / 發球,產生統計數據。姿勢估計與分析全部在你的瀏覽器裡執行(MediaPipe WASM),影片不會離開你的裝置。</p>
+
+  <div class="panel">
+    <div id="drop" class="drop">
+      <strong>點擊或拖曳影片檔案到這裡</strong>
+      <p>支援 .mp4 / .mov / .webm 等瀏覽器可播放的格式</p>
+      <p id="filename"></p>
+    </div>
+    <input id="file-input" type="file" accept="video/*" />
+    <button id="analyze-btn" disabled>開始分析</button>
+    <div id="status" class="status"></div>
+    <div id="progress-wrap" class="progress-wrap hidden">
+      <div id="progress-bar" class="progress-bar"></div>
+    </div>
+  </div>
+
+  <div id="results" class="hidden">
+    <div class="stat-row">
+      <div class="stat-tile">
+        <div class="label">影片長度 (取樣範圍)</div>
+        <div class="value" id="stat-duration">-</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">回合數 Rallies</div>
+        <div class="value" id="stat-rallies">-</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">總擊球數 Shots</div>
+        <div class="value" id="stat-shots">-</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>擊球類型分布 Shot Type Distribution</h2>
+      <canvas id="bar-chart" height="140"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>擊球時間軸 Hit Timeline</h2>
+      <canvas id="timeline-chart" height="140"></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--forehand)"></i>正手 forehand</span>
+        <span><i class="dot" style="background:var(--backhand)"></i>反手 backhand</span>
+        <span><i class="dot" style="background:var(--serve)"></i>發球 serve</span>
+        <span><i class="dot" style="background:var(--unknown)"></i>未辨識 unknown</span>
+      </div>
+    </div>
+
+    <div class="note">
+      目前分類採用「姿勢幾何啟發式規則」(手腕相對軀幹中線的位置、擊球瞬間手腕高度),
+      並非訓練過的機器學習模型 —— 準確度會隨鏡頭角度、遮擋與球員站位而變動,僅供 MVP 展示與統計趨勢參考。
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
