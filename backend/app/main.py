@@ -8,8 +8,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .models import AnalysisResult, ShotOut
+from .models import AnalysisResult, AnalyzeUrlRequest, ShotOut
 from .pipeline import analyze_video
+from .pipeline.youtube import InvalidVideoUrlError, download_youtube_video, is_allowed_youtube_url
 
 app = FastAPI(title="Squash Video Analysis")
 
@@ -43,6 +44,25 @@ async def analyze(file: UploadFile = File(...)) -> AnalysisResult:
         tmp.flush()
         stats, duration = analyze_video(tmp.name)
 
+    return _to_analysis_result(stats, duration)
+
+
+@app.post("/analyze-url", response_model=AnalysisResult)
+async def analyze_url(payload: AnalyzeUrlRequest) -> AnalysisResult:
+    if not is_allowed_youtube_url(payload.url):
+        raise HTTPException(400, "只支援 youtube.com / youtu.be 的連結")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            video_path = download_youtube_video(payload.url, tmp_dir)
+        except InvalidVideoUrlError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        stats, duration = analyze_video(str(video_path))
+
+    return _to_analysis_result(stats, duration)
+
+
+def _to_analysis_result(stats, duration: float) -> AnalysisResult:
     return AnalysisResult(
         duration_seconds=duration,
         rally_count=stats.rally_count,

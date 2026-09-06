@@ -6,6 +6,10 @@ from typing import Dict, List
 from pydantic import BaseModel
 
 
+class AnalyzeUrlRequest(BaseModel):
+    url: str
+
+
 class ShotOut(BaseModel):
     t: float
     side: str

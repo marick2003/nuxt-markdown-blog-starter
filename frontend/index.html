@@ -61,6 +61,20 @@
   button:disabled { opacity: .5; cursor: default; }
   .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 18px; }
   .error { color: #ff6b6b; }
+  .divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin: 18px 0; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--panel-border); }
+  .url-row { display: flex; gap: 10px; }
+  .url-row input[type=text] {
+    flex: 1;
+    background: #0b0f1a;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .url-row button { margin-top: 0; white-space: nowrap; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
   .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
   .stat-tile {
     background: var(--panel);
@@ -99,6 +113,15 @@
     </div>
     <input id="file-input" type="file" accept=".mp4,.mov,.avi,.mkv,video/*" />
     <button id="analyze-btn" disabled>開始分析</button>
+
+    <div class="divider">或</div>
+
+    <div class="url-row">
+      <input id="youtube-url" type="text" placeholder="貼上 YouTube 影片連結,例如 https://www.youtube.com/watch?v=..." />
+      <button id="analyze-url-btn">分析 YouTube 影片</button>
+    </div>
+    <div class="hint">伺服器會先下載影片(限制在 20 分鐘以內、最高 720p)再分析,只支援 youtube.com / youtu.be 網址。</div>
+
     <div id="status" class="status"></div>
   </div>
 
@@ -162,6 +185,8 @@ const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file-input");
 const filenameEl = document.getElementById("filename");
 const analyzeBtn = document.getElementById("analyze-btn");
+const youtubeUrlInput = document.getElementById("youtube-url");
+const analyzeUrlBtn = document.getElementById("analyze-url-btn");
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 
@@ -192,17 +217,35 @@ function setFile(file) {
   statusEl.classList.remove("error");
 }
 
-analyzeBtn.addEventListener("click", async () => {
+analyzeBtn.addEventListener("click", () => {
   if (!selectedFile) return;
+  const form = new FormData();
+  form.append("file", selectedFile);
+  runAnalysis(analyzeBtn, () => fetch(`${API_BASE}/analyze`, { method: "POST", body: form }));
+});
+
+analyzeUrlBtn.addEventListener("click", () => {
+  const url = youtubeUrlInput.value.trim();
+  if (!url) return;
+  runAnalysis(analyzeUrlBtn, () =>
+    fetch(`${API_BASE}/analyze-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }),
+    "分析中,伺服器需要先下載這段 YouTube 影片,可能需要一段時間..."
+  );
+});
+
+async function runAnalysis(triggerBtn, doFetch, progressText) {
   analyzeBtn.disabled = true;
+  analyzeUrlBtn.disabled = true;
   statusEl.classList.remove("error");
-  statusEl.textContent = "分析中,依影片長度可能需要數十秒到數分鐘...";
+  statusEl.textContent = progressText || "分析中,依影片長度可能需要數十秒到數分鐘...";
   resultsEl.classList.add("hidden");
 
   try {
-    const form = new FormData();
-    form.append("file", selectedFile);
-    const res = await fetch(`${API_BASE}/analyze`, { method: "POST", body: form });
+    const res = await doFetch();
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.detail || `伺服器錯誤 (${res.status})`);
@@ -214,9 +257,10 @@ analyzeBtn.addEventListener("click", async () => {
     statusEl.textContent = `發生錯誤:${err.message}`;
     statusEl.classList.add("error");
   } finally {
-    analyzeBtn.disabled = false;
+    analyzeBtn.disabled = !selectedFile;
+    analyzeUrlBtn.disabled = false;
   }
-});
+}
 
 function renderResults(data) {
   document.getElementById("stat-duration").textContent = `${data.duration_seconds.toFixed(1)}s`;

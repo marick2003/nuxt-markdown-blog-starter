@@ -56,10 +56,11 @@ backend/
       classifier.py        # 正手/反手/發球分類規則
       stats.py             # 回合切分與統計聚合
       config.py            # 可調參數
+      youtube.py           # 用 yt-dlp 下載 YouTube 影片(限定 youtube.com/youtu.be)
   scripts/analyze_video.py  # 命令列工具,不透過網頁也能分析影片
   tests/                     # pytest 單元測試(不需要真實影片)
 frontend/
-  index.html                 # 上傳影片 + 圖表儀表板(呼叫 backend API,單一靜態頁面)
+  index.html                 # 上傳影片(或貼 YouTube 連結)+ 圖表儀表板(呼叫 backend API,單一靜態頁面)
 docs/                          # 純前端版本,可直接部署到 GitHub Pages
   index.html                   # 上傳影片 + 圖表儀表板(分析全部在瀏覽器內執行)
   js/
@@ -94,6 +95,23 @@ uvicorn app.main:app --reload
 ```
 
 開啟 http://127.0.0.1:8000/static/index.html 上傳影片並查看分析結果。
+
+### 分析 YouTube 影片連結
+
+只有 Python 後端版支援這個功能(純前端的 `docs/` 版本做不到,瀏覽器沒辦法直接讀取 YouTube 的影片串流)。網頁上「或貼上 YouTube 連結」欄位、或直接呼叫 API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/analyze-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=xxxxxxxxxxx"}'
+```
+
+伺服器會用 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 把影片下載到暫存資料夾,分析完就刪除。為了避免這支 API 被當成「什麼連結都能下載」的通用服務,`app/pipeline/youtube.py` 刻意加了限制:
+
+- 只接受 `youtube.com` / `youtu.be` 網域(其他網址一律拒絕,見 `is_allowed_youtube_url`)。
+- 影片長度上限 20 分鐘、畫質上限 720p(`MAX_DURATION_SECONDS` / `MAX_HEIGHT`),避免下載耗時過長或佔用太多空間。
+
+**這個功能在目前的開發環境裡沒辦法完整測試到底**:這裡的 sandbox 網路政策直接擋掉 `youtube.com`(組織層級的 egress 限制,連 `curl` 直接打都是 403),所以只驗證到「URL 檢查、下載失敗會回傳乾淨的錯誤訊息而不是讓伺服器掛掉」這一步,實際下載/分析要等部署到正常能連網際網路的環境才能跑通。部署後如果 yt-dlp 因為 YouTube 改版而失效,通常升級 `yt-dlp` 版本(`pip install -U yt-dlp`)就能修好,這是 yt-dlp 這類工具的常態維護方式。
 
 ### 命令列分析
 
